@@ -1,0 +1,20 @@
+{
+    "GUIDS": [
+        {
+            "guid": "cpb-aacip-525-bg2h70914g",
+            "type": "video"
+        },
+        {
+            "guid": "cpb-aacip-516-d795718n8k",
+            "type": "video"
+        },
+        {
+            "guid": "cpb-aacip-507-r785h7cn7v",
+            "type": "video"
+        }
+    ],
+    "ContainerIDs": [
+        "ghcr.io/clamsproject/app-slatedetection:v1.2",
+        "ghcr.io/clamsproject/app-spacy-wrapper:latest"
+    ]
+}
