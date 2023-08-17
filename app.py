@@ -7,69 +7,60 @@ import subprocess
 import os
 import json
 import argparse
+from clams import source
 from mmif import Mmif, DocumentTypes
+import requests
+import time
 
 app = Flask(__name__)
 
 def request_id():
     '''generates random hash id'''
     hash = ''.join(random.choice(string.ascii_letters) for i in range(10))
-    return hash + "_" + datetime.today().strftime("%y%m%d%H%M%S")
+    return datetime.today().strftime("%y%m%d%H%M%S") + "_" + hash
 
 def read_json(file):
     '''returns guids and container ids from json file'''
     f = open(file)
     data = json.load(f)
-    return data['GUIDS'], data['ContainerIDS']
+    return data['GUIDS'], data['ContainerIDs']
 
 def generate_source(guids):
-    '''given list of dictionaries, with each dictionary containing a guid and file type, generates a source MMIF (assuming baapb scheme)'''
-    types = {
-        'video': DocumentTypes.VideoDocument,
-        'audio': DocumentTypes.AudioDocument,
-        'text': DocumentTypes.TextDocument,
-        'image': DocumentTypes.ImageDocument
-    }
-    documents = []
-    index = 1
-    for guid in guids:
-        file_location = "baapb://" + guid["guid"] + "." + guid["type"]
-        document = '''{"@type": "''' + types[guid["type"]] + '''", "properties": { "id": "d''' + str(index) + '''", "mime": "''' + guid["type"] + '''", "location": "''' + file_location + '''"}}'''
-        index += 1
-        documents.append(document)
-    mmif_str = """{
-                    "metadata": {
-                        "mmif": "http://mmif.clams.ai/1.0.2"
-                    },
-                    "documents": [
-                    """
-    i = 0
-    while i < len(documents) - 1:
-        mmif_str = mmif_str + documents[i] + ","
-        i += 1
-    mmif_str = mmif_str + documents[i] + '''], "views": []}'''
-    return Mmif(mmif_str)
-
-def pull_images(container_ids):
-    '''builds docker images'''
-    for id in container_ids:
-        subprocess.run(["docker", "pull"], input=id)
-    return
+    '''generates source mmif given guids and file types'''
+    file_names = [guid["type"]+":"+guid["guid"]+"."+guid["type"] for guid in guids]
+    mmif = source.generate_source_mmif_from_customscheme(file_names, "baapb")
+    print(mmif)
+    return Mmif(mmif)
 
 def update_input(input):
     '''updates input.mmif'''
     file = Path('input.mmif')
     file.open('w').write(input)
+    print("updating input")
     return
 
 def run_container(id, port_index):
-    '''runs a docker container and returns the result'''
-    port_argument = "-p=" + str(port_index) + ":5000"
-    mount_argument = "-v=" + DIRECTORY + ":/data"
-    subprocess.run(["docker", "run", "--rm", port_argument, mount_argument, id])
-    port_argument = "http://" + HOST + ":" + PORT
-    result = subprocess.run(["curl", "-H", "Accept: application/json", "-X", "POST", "-d@input.mmif", port_argument], stdout=subprocess.PIPE, text=True)
-    return result.stdout
+    '''runs a docker container and returns its id'''
+    print("starting to run container: " + id)
+    print()
+    environment_argument = "BAAPB_RESOLVER_ADDRESS=eldrad.cs-i.brandeis.edu:23456"
+    port_argument = str(port_index) + ":5000"
+    mount_argument = "/mnt:/mnt"
+    container_id = subprocess.run([CONTAINER_CMD, "run", '-d', "--rm", "-e", environment_argument, "-p", port_argument, "-v", mount_argument, id, "/bin/bash", "-c", 'pip3 install mmif-docloc-baapb && python3 /app/app.py'], stdout=subprocess.PIPE, text=True)
+    # add feature to support bigger containers (loop until get request returns 200?)
+    return container_id.stdout
+    
+def get_result(port_index):
+    '''given a port, gets the result of posting input.mmif to that port'''
+    url_argument = "http://" + "127.0.0.1" + ":" + str(port_index)
+    result = requests.post(url_argument, data=open("input.mmif").read())
+    return result.text
+
+def close_containers(docker_ids):
+    '''closes containers'''
+    for id in docker_ids:
+        subprocess.run([CONTAINER_CMD, "stop", id.split()[0]])
+    return
 
 def write_output(output, id):
     '''writes output in directory named after request id'''
@@ -82,28 +73,34 @@ def write_output(output, id):
 def pipeline():
     id = request_id()
     guids, container_ids = read_json(request.form['request'])
-    port_index = 5001
-    update_input(generate_source(guids))
-    update_input(input)
-    pull_images(container_ids)
+    start_port_index = 35010
+    end_port_index = 35010
+    update_input(generate_source(guids).serialize())
     i = 0
-    while i < len(container_ids) - 1:
-        update_input(run_container(container_ids[i], port_index))
+    container_list = []
+    while i < len(container_ids):
+        container_list.append(run_container(container_ids[i], end_port_index))
         i += 1
-        port_index += 1
-    output = run_container(container_ids[i], port_index)
-    write_output(output, id)    
+        end_port_index += 1
+    time.sleep(15)
+    for i in range(start_port_index, end_port_index):
+        update_input(get_result(i))
+    close_containers(container_list)
+    write_output(open('input.mmif').read(), id) 
+    return "complete"
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--host', nargs='?', help="the host name", default="0.0.0.0")
-    parser.add_argument('--port', nargs='?', help="the port", default="5000")
-    parser.add_argument('--directory', nargs='?', help="the directory containing the AAPB files", default="../../llc_data/clams")
-    parser.add_argument('--variable', nargs='?', help="the environment variable storing the location of the BAAPB server", default="BAAPB_RESOLVER_ADDRESS")
+    parser.add_argument('--port', nargs='?', help="the port", default="35000")
+    container = parser.add_mutually_exclusive_group(required=True)
+    container.add_argument('--docker', action='store_true', help='use docker to run the containers')
+    container.add_argument('--podman', action='store_true', help='use podman to run the containers')
     args = parser.parse_args()
     HOST = args.host
     PORT = args.port
-    DIRECTORY = args.directory
-    RESOLVER_ADDRESS = os.envrion[args.variable]
+    CONTAINER_CMD = "docker"
+    if args.podman:
+        CONTAINER_CMD = "podman"
     app.run(host=HOST, port=PORT)
     

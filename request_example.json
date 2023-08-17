@@ -14,7 +14,7 @@
         }
     ],
     "ContainerIDs": [
-        "ghcr.io/clamsproject/app-slatedetection:v1.2",
-        "ghcr.io/clamsproject/app-spacy-wrapper:latest"
+        "ghcr.io/clamsproject/app-slatedetection:v2.1",
+        "ghcr.io/clamsproject/app-barsdetection:v1.1"
     ]
 }
