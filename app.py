@@ -10,7 +10,8 @@ import argparse
 from clams import source
 from mmif import Mmif, DocumentTypes
 import requests
-import time
+from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
 
 app = Flask(__name__)
 
@@ -29,7 +30,6 @@ def generate_source(guids):
     '''generates source mmif given guids and file types'''
     file_names = [guid["type"]+":"+guid["guid"]+"."+guid["type"] for guid in guids]
     mmif = source.generate_source_mmif_from_customscheme(file_names, "baapb")
-    print(mmif)
     return Mmif(mmif)
 
 def update_input(input):
@@ -47,13 +47,12 @@ def run_container(id, port_index):
     port_argument = str(port_index) + ":5000"
     mount_argument = "/mnt:/mnt"
     container_id = subprocess.run([CONTAINER_CMD, "run", '-d', "--rm", "-e", environment_argument, "-p", port_argument, "-v", mount_argument, id, "/bin/bash", "-c", 'pip3 install mmif-docloc-baapb && python3 /app/app.py'], stdout=subprocess.PIPE, text=True)
-    # add feature to support bigger containers (loop until get request returns 200?)
     return container_id.stdout
     
-def get_result(port_index):
+def get_result(port_index, session):
     '''given a port, gets the result of posting input.mmif to that port'''
     url_argument = "http://" + "127.0.0.1" + ":" + str(port_index)
-    result = requests.post(url_argument, data=open("input.mmif").read())
+    result = session.post(url_argument, data=open("input.mmif").read())
     return result.text
 
 def close_containers(docker_ids):
@@ -82,9 +81,13 @@ def pipeline():
         container_list.append(run_container(container_ids[i], end_port_index))
         i += 1
         end_port_index += 1
-    time.sleep(15)
+    session = requests.Session()
+    session.headers.update({'Accept': 'application/json'})
+    retry_adapter = HTTPAdapter(max_retries=Retry(total=6, backoff_factor=1, allowed_methods={'GET', 'POST'},
+                                                      status_forcelist=[502, 503, 504]))
+    session.mount('http://', retry_adapter)
     for i in range(start_port_index, end_port_index):
-        update_input(get_result(i))
+        update_input(get_result(i, session))
     close_containers(container_list)
     write_output(open('input.mmif').read(), id) 
     return "complete"
