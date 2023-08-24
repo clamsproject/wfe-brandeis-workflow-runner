@@ -1,2 +1,0 @@
-clams-python==1.0.2
-mmif-python==1.0.2

@@ -1,0 +1,4 @@
+clams-python==1.0.2
+mmif-python>=1.0.1
+requests>=2.31.0
+flask>=2.3.2
