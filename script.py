@@ -16,6 +16,9 @@ def write_containerfile(guids):
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
+RUN mkdir /output_data
+VOLUME /output_data
+
 WORKDIR /app
 RUN pip install --upgrade pip
 COPY ./requirements.txt /app/requirements.txt
@@ -25,7 +28,7 @@ RUN apt update && apt install bash
 
 COPY ./pipeline.sh /app/pipeline.sh
 RUN chmod +x pipeline.sh
-RUN tr -d '\r' < pipeline.sh > pipeline.sh
+RUN tr -d \r < pipeline.sh > pipeline.sh
 
 CMD ["/bin/bash", "pipeline.sh", "${guid_list}"]''')
     file_text = file_template.substitute(guid_list=" ".join([guid["type"]+":"+guid["guid"]+"."+guid["type"] for guid in guids]))
@@ -64,7 +67,12 @@ def write_compose(containers):
     container_name: head
     depends_on:
       ${depend}
-${apps}""")
+    volumes:
+      - output_data:/output_data
+${apps}
+volumes:
+  output_data:
+    driver: local""")
     # TODO: add volume mount so that files are available on host system
     services = {}
     index = 1
@@ -79,8 +87,9 @@ ${apps}""")
     return
 
 if __name__ == '__main__':
-    if not Path.is_dir("app"):
-        Path("app").mkdir(parents=True)
+    p = Path("app")
+    if not p.is_dir():
+        p.mkdir(parents=True)
     parser = argparse.ArgumentParser()
     parser.add_argument('filename', help="the request json file")
     args = parser.parse_args()
