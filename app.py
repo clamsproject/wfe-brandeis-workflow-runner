@@ -1,11 +1,15 @@
 import argparse
 from flask import Flask, request
+from script import process_post
+import subprocess
 
 app = Flask(__name__)
 
-@app.route('/')
-def main():
-    pass
+@app.route('/', methods=['POST'])
+def home():
+    process_post(request.form['file'])
+    result = subprocess.run(["docker-compose", "up"], stdout=subprocess.PIPE, text=True)
+    return result.stdout
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

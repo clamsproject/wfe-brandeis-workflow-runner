@@ -86,14 +86,11 @@ volumes:
     file.open('w').write(compose_text)
     return
 
-if __name__ == '__main__':
+def process_post(filename):
     p = Path("app")
     if not p.is_dir():
         p.mkdir(parents=True)
-    parser = argparse.ArgumentParser()
-    parser.add_argument('filename', help="the request json file")
-    args = parser.parse_args()
-    guids, containers = read_json(args.filename)
+    guids, containers = read_json(filename)
     write_containerfile(guids)
     write_compose(containers)
     # TODO: possibly add feature to automate call to docker compose after the compose.yaml is created
